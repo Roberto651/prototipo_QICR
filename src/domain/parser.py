@@ -61,11 +61,14 @@ class NileParser:
         NileParser._validate_syntax(nile_script)
 
         # 2. Extrai origem e destino (garantidos pela validação)
-        src_match = re.search(r"from\s+(?:group|endpoint)\('([^']+)'\)", nile_script)
-        dst_match = re.search(r"to\s+(?:group|endpoint)\('([^']+)'\)", nile_script)
+        src_match = re.search(r"from\s+(group|endpoint)\('([^']+)'\)", nile_script)
+        dst_match = re.search(r"to\s+(group|endpoint)\('([^']+)'\)", nile_script)
         
-        src = src_match.group(1).strip()
-        dst = dst_match.group(1).strip()
+        src_type = src_match.group(1)
+        src = src_match.group(2).strip()
+        
+        dst_type = dst_match.group(1)
+        dst = dst_match.group(2).strip()
         
         # 3. Extrai Middleboxes (SFC)
         sfc = []
@@ -90,5 +93,4 @@ class NileParser:
                 deny.add(int(m) if m.isdigit() else m)
                 
         filters = set(permit)
-        
-        return Intent(src=src, dst=dst, filters=filters, sfc=sfc, permit=permit, deny=deny)
+        return Intent(src=src, dst=dst, src_type=src_type, dst_type=dst_type, filters=filters, sfc=sfc, permit=permit, deny=deny)

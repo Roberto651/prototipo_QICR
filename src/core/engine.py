@@ -127,6 +127,8 @@ class QICREngine:
                         Intent(
                             src=src, 
                             dst=dst, 
+                            src_type="endpoint",
+                            dst_type="endpoint",
                             filters=intent.filters.copy(), 
                             sfc=intent.sfc.copy(), 
                             permit=intent.permit.copy(), 
@@ -161,6 +163,8 @@ class QICREngine:
                 Intent(
                     src=src, 
                     dst=dst, 
+                    src_type="endpoint",
+                    dst_type="endpoint",
                     filters=final_filters, 
                     sfc=combined_sfc, 
                     permit=final_permit, 
