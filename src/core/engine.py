@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 class QICREngine:
     def __init__(self, kg: KnowledgeGraph):
         self.kg = kg
+        self.max_bandwidth = 100.0  # Mbps
+        self.min_latency = 5.0      # ms
+        self.max_packet_loss = 1.0  # %
+        self.available_bandwidth = self.max_bandwidth
 
     def _combine_sfcs(self, intents: List[Intent]) -> List[str]:
         # 1. Definir prioridades padrão
@@ -93,8 +97,94 @@ class QICREngine:
         
         return same_src and same_dst
 
+    def resolve_qos_intra_conflicts(self, intents: List[Intent]) -> List[Intent]:
+        logger.info("=== Iniciando Detecção de Conflitos Intra-Intent QoS (III.B) ===")
+        valid_intents = []
+        for intent in intents:
+            conflict = False
+            # Violation of System Thresholds
+            if intent.latency is not None and intent.latency < self.min_latency:
+                logger.warning(f"[Intra-Intent] Latency {intent.latency} below system limit ({self.min_latency}) for {intent.src}->{intent.dst}")
+                conflict = True
+            # Resource overcommitment
+            if intent.bandwidth is not None and intent.bandwidth > self.max_bandwidth:
+                logger.warning(f"[Intra-Intent] Bandwidth {intent.bandwidth} exceeds system capacity ({self.max_bandwidth}) for {intent.src}->{intent.dst}")
+                conflict = True
+            # Incompatible Service Expectations
+            if intent.latency is not None and intent.packet_loss is not None:
+                if intent.latency < 10 and intent.packet_loss > self.max_packet_loss:
+                    logger.warning(f"[Intra-Intent] Incompatible expectations: ultra-low latency mas packet loss > {self.max_packet_loss} for {intent.src}->{intent.dst}")
+                    conflict = True
+                    
+            if not conflict:
+                valid_intents.append(intent)
+            else:
+                logger.warning(f"Intent {intent.src}->{intent.dst} rejected due to intra-intent conflict.")
+        return valid_intents
+
+    def resolve_qos_inter_conflicts(self, intents: List[Intent]) -> List[Intent]:
+        logger.info("=== Iniciando Resolução de Conflitos Inter-Intent QoS (III.C) ===")
+        qos_intents = [i for i in intents if i.bandwidth is not None]
+        no_qos_intents = [i for i in intents if i.bandwidth is None]
+        
+        total_bw_requested = sum(i.bandwidth for i in qos_intents)
+        if total_bw_requested <= self.max_bandwidth:
+            logger.info("Nenhum conflito Inter-Intent de recursos detectado.")
+            return intents
+
+        logger.warning(f"[Inter-Intent] Cross-Intent Resource Contention: Cumulative BW ({total_bw_requested}) exceeds capacity ({self.max_bandwidth}). Resolving...")
+        
+        # Conflict Resolution Model
+        resolved_qos_intents = []
+        
+        # Definir quais são de alta prioridade (ex: priority >= 80)
+        high_prio_threshold = 80
+        high_priority = [i for i in qos_intents if (i.priority or 0) >= high_prio_threshold]
+        normal_priority = [i for i in qos_intents if (i.priority or 0) < high_prio_threshold]
+        
+        # Priority-Based Allocation (up to 40% of bandwidth)
+        hp_limit = 0.4 * self.max_bandwidth
+        hp_used = 0.0
+        
+        # Sort high priority by priority descending
+        high_priority.sort(key=lambda x: x.priority or 0, reverse=True)
+        
+        for intent in high_priority:
+            if hp_used + intent.bandwidth <= hp_limit:
+                hp_used += intent.bandwidth
+                resolved_qos_intents.append(intent)
+            else:
+                normal_priority.append(intent)
+                
+        # Weighted Fair Sharing for the rest
+        remaining_bw = self.max_bandwidth - hp_used
+        total_weight = sum((i.priority or 1) for i in normal_priority)
+        
+        for intent in normal_priority:
+            weight = (intent.priority or 1)
+            share = remaining_bw * (weight / total_weight) if total_weight > 0 else 0
+            
+            allocated_bw = min(intent.bandwidth, share)
+            if allocated_bw < intent.bandwidth:
+                logger.info(f"SLA Relaxation for {intent.src}->{intent.dst}: Bandwidth reduced from {intent.bandwidth} to {allocated_bw:.2f} due to Weighted Fair Sharing.")
+                intent.bandwidth = round(allocated_bw, 2)
+            resolved_qos_intents.append(intent)
+            
+        logger.info("=== Fim da Resolução Inter-Intent QoS ===")
+        return resolved_qos_intents + no_qos_intents
+
     def resolve_conflicts(self, intents: List[Intent]) -> List[Intent]:
-        logger.info("=== Iniciando Resolução de Conflitos ===")
+        logger.info("Resolvendo Conflitos Intra-Intent QoS...")
+        intra_resolved = self.resolve_qos_intra_conflicts(intents)
+        
+        logger.info("Resolvendo Conflitos Estruturais/SFC...")
+        structural_resolved = self.resolve_structural_conflicts(intra_resolved)
+        
+        logger.info("Resolvendo Conflitos Inter-Intent QoS...")
+        return self.resolve_qos_inter_conflicts(structural_resolved)
+
+    def resolve_structural_conflicts(self, intents: List[Intent]) -> List[Intent]:
+        logger.info("=== Iniciando Resolução de Conflitos Estruturais ===")
         
         # 1. Identificação Inicial de Conflitos
         conflicting_indices = set()
@@ -132,7 +222,11 @@ class QICREngine:
                             filters=intent.filters.copy(), 
                             sfc=intent.sfc.copy(), 
                             permit=intent.permit.copy(), 
-                            deny=intent.deny.copy()
+                            deny=intent.deny.copy(),
+                            bandwidth=intent.bandwidth,
+                            latency=intent.latency,
+                            packet_loss=intent.packet_loss,
+                            priority=intent.priority
                         )
                     )
         
@@ -147,11 +241,24 @@ class QICREngine:
             combined_filters = set()
             combined_permit = set()
             combined_deny = set()
+            combined_bandwidth = None
+            combined_latency = None
+            combined_packet_loss = None
+            combined_priority = None
             
             for intent in intent_list:
                 combined_filters.update(intent.filters)
                 combined_permit.update(intent.permit)
                 combined_deny.update(intent.deny)
+                
+                if intent.bandwidth is not None:
+                    combined_bandwidth = max(combined_bandwidth, intent.bandwidth) if combined_bandwidth is not None else intent.bandwidth
+                if intent.latency is not None:
+                    combined_latency = min(combined_latency, intent.latency) if combined_latency is not None else intent.latency
+                if intent.packet_loss is not None:
+                    combined_packet_loss = min(combined_packet_loss, intent.packet_loss) if combined_packet_loss is not None else intent.packet_loss
+                if intent.priority is not None:
+                    combined_priority = max(combined_priority, intent.priority) if combined_priority is not None else intent.priority
             
             combined_sfc = self._combine_sfcs(intent_list)
             
@@ -168,7 +275,11 @@ class QICREngine:
                     filters=final_filters, 
                     sfc=combined_sfc, 
                     permit=final_permit, 
-                    deny=combined_deny
+                    deny=combined_deny,
+                    bandwidth=combined_bandwidth,
+                    latency=combined_latency,
+                    packet_loss=combined_packet_loss,
+                    priority=combined_priority
                 )
             )
 

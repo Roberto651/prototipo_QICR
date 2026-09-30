@@ -155,5 +155,85 @@ def main():
     for i in repo.get_all():
         logger.info(f"  {i}")
 
+    # ---------------------------------------------------------
+    # SIMULAÇÃO: JANELA DE TEMPO 5 (Conflitos de QoS - III.B e III.C)
+    # ---------------------------------------------------------
+    logger.info("\n--- INICIANDO JANELA 5 (Conflitos QoS e Resolução) ---")
+    
+    # Intenção 1 (Intra-Intent Conflict: Bandwidth excessiva)
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_Overcommit:
+      from endpoint('A1')
+      to endpoint('Web')
+      demand bandwidth('150.0')
+    """))
+
+    # Intenção 2 (Alta Prioridade)
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_HighPrio:
+      from endpoint('A2')
+      to endpoint('DB')
+      demand bandwidth('30.0')
+      demand latency('2.0')
+      demand packet_loss('0.5')
+      set priority('90')
+    """))
+
+    # Intenção 3 (Prioridade Normal - Concorrendo por banda)
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_Normal_1:
+      from endpoint('B1')
+      to endpoint('Web')
+      demand bandwidth('60.0')
+      set priority('40')
+    """))
+
+    # Intenção 4 (Prioridade Normal - Concorrendo por banda)
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_Normal_2:
+      from endpoint('B2')
+      to endpoint('DB')
+      demand bandwidth('60.0')
+      set priority('20')
+    """))
+
+    calendar.close_time_window()
+
+    logger.info("Estado Atual da Rede (Repositório após Janela 5):")
+    for i in repo.get_all():
+        logger.info(f"  {i}")
+
+    # ---------------------------------------------------------
+    # SIMULAÇÃO: JANELA DE TEMPO 6 (Teste de Anti-Envenenamento)
+    # ---------------------------------------------------------
+    logger.info("\n--- INICIANDO JANELA 6 (Teste do Anti-Envenenamento de Junção) ---")
+    
+    # Intenção 1: Válida e razoável
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_Valid_A1_DB:
+      from endpoint('A1')
+      to endpoint('DB')
+      demand bandwidth('70.0')
+      set priority('50')
+    """))
+
+    # Intenção 2: Absurda e com a mesma origem e destino da anterior.
+    # Se a mesclagem estrutural ocorresse ANTES do filtro individual, 
+    # ela "envenenaria" a intenção 1 ao tirar o max(),
+    # e ambas seriam descartadas pelo limite sistêmico.
+    calendar.declare_intent(NileParser.parse("""
+    define intent QoS_Poison_A1_DB:
+      from endpoint('A1')
+      to endpoint('DB')
+      demand bandwidth('1500.0')
+    """))
+
+    calendar.close_time_window()
+
+    logger.info("Estado Atual da Rede (Repositório após Janela 6):")
+    for i in repo.get_all():
+        if i.src == 'A1' and i.dst == 'DB':
+            logger.info(f"  {i}")
+
 if __name__ == "__main__":
     main()
