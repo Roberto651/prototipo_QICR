@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Set
 
 class Intent(BaseModel):
+    name: str = ""
     src: str
     dst: str
     src_type: str = "group"
@@ -12,7 +13,8 @@ class Intent(BaseModel):
     deny: Set[int] = Field(default_factory=set)
 
     def __str__(self):
-        lines = [f"define intent Intent_{self.src}_{self.dst}:"]
+        intent_name = self.name if self.name else f"Intent_{self.src}_{self.dst}"
+        lines = [f"define intent {intent_name}:"]
         lines.append(f"  from {self.src_type}('{self.src}')")
         lines.append(f"  to {self.dst_type}('{self.dst}')")
         if self.sfc:

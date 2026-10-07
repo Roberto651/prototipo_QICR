@@ -26,7 +26,7 @@ class QICREngine:
                     original_transitions.add((sfc[i], sfc[i+1]))
         
         if not unique_nodes:
-            return ["FW"] # Heurística padrão
+            return []
 
         # Construir o Grafo DAG
         G = nx.DiGraph()
@@ -101,6 +101,9 @@ class QICREngine:
         for i in range(len(intents)):
             for j in range(i + 1, len(intents)):
                 if self.check_conflict(intents[i], intents[j]):
+                    name_i = intents[i].name if intents[i].name else f"Intent_{intents[i].src}_{intents[i].dst}"
+                    name_j = intents[j].name if intents[j].name else f"Intent_{intents[j].src}_{intents[j].dst}"
+                    logger.info(f"-> Conflito Macro Identificado: {name_i} vs {name_j}")
                     conflicting_indices.add(i)
                     conflicting_indices.add(j)
                     
@@ -143,12 +146,14 @@ class QICREngine:
             if len(intent_list) == 1:
                 resolved_intents.append(intent_list[0])
                 continue
+            logger.info(f"-> Conflito detectado na rota atômica {src} -> {dst}. Intenções envolvidas ({len(intent_list)}):")
             
             combined_filters = set()
             combined_permit = set()
             combined_deny = set()
             
-            for intent in intent_list:
+            for idx, intent in enumerate(intent_list, 1):
+                logger.info(f"   [Concorrente {idx}] Permitir: {intent.permit} | Bloquear: {intent.deny} | SFC: {intent.sfc}")
                 combined_filters.update(intent.filters)
                 combined_permit.update(intent.permit)
                 combined_deny.update(intent.deny)
@@ -158,19 +163,20 @@ class QICREngine:
             final_filters = combined_filters - combined_deny
             final_permit = combined_permit - combined_deny
 
-
-            resolved_intents.append(
-                Intent(
-                    src=src, 
-                    dst=dst, 
-                    src_type="endpoint",
-                    dst_type="endpoint",
-                    filters=final_filters, 
-                    sfc=combined_sfc, 
-                    permit=final_permit, 
-                    deny=combined_deny
-                )
+            final_intent = Intent(
+                src=src, 
+                dst=dst, 
+                src_type="endpoint",
+                dst_type="endpoint",
+                filters=final_filters, 
+                sfc=combined_sfc, 
+                permit=final_permit, 
+                deny=combined_deny
             )
+            
+            logger.info(f"   [RESULTADO {src} -> {dst}]: A política matemática fundida gerou:\n{final_intent}")
+            
+            resolved_intents.append(final_intent)
 
         # 4. Saída e Identificação Final
         final_list = isolated_intents + resolved_intents

@@ -60,7 +60,10 @@ class NileParser:
         # 1. Faz a checagem rigorosa
         NileParser._validate_syntax(nile_script)
 
-        # 2. Extrai origem e destino (garantidos pela validação)
+        # 2. Extrai nome, origem e destino
+        name_match = re.search(r"define intent\s+([^:]+):", nile_script)
+        intent_name = name_match.group(1).strip() if name_match else ""
+
         src_match = re.search(r"from\s+(group|endpoint)\('([^']+)'\)", nile_script)
         dst_match = re.search(r"to\s+(group|endpoint)\('([^']+)'\)", nile_script)
         
@@ -93,4 +96,4 @@ class NileParser:
                 deny.add(int(m) if m.isdigit() else m)
                 
         filters = set(permit)
-        return Intent(src=src, dst=dst, src_type=src_type, dst_type=dst_type, filters=filters, sfc=sfc, permit=permit, deny=deny)
+        return Intent(name=intent_name, src=src, dst=dst, src_type=src_type, dst_type=dst_type, filters=filters, sfc=sfc, permit=permit, deny=deny)
