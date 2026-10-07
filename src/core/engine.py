@@ -33,6 +33,15 @@ class QICREngine:
         G.add_nodes_from(unique_nodes)
         
         for u, v in original_transitions:
+            prio_u = SFC_PRIORITIES.get(u, 0)
+            prio_v = SFC_PRIORITIES.get(v, 0)
+            
+            # Se a transição exigida pelo usuário viola a prioridade global de segurança, 
+            # ela é ignorada para forçar a ordem correta no Topological Sort.
+            if prio_u < prio_v:
+                logger.warning(f"[{u}->{v}] violou a política de prioridades ({prio_u} < {prio_v}). Aresta ignorada.")
+                continue
+                
             G.add_edge(u, v)
             
         # Se gerar um ciclo, removemos arestas conflitantes de menor prioridade
