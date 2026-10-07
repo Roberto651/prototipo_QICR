@@ -228,3 +228,21 @@ if __name__ == "__main__":
             """
         ]
     )
+    
+    run_example(
+        "EXEMPLO 10: Ordenação de SFC com pesos iguais (O algoritmo respeita a transição do administrador)",
+        [
+            """
+            define intent Rota_Analista_A:
+              from endpoint('Fin_PC1')
+              to endpoint('DB_Server')
+              add middlebox('FW'), middlebox('IDS')
+            """,
+            """
+            define intent Rota_Analista_B:
+              from endpoint('Fin_PC1')
+              to endpoint('DB_Server')
+              add middlebox('FW'), middlebox('IPS'), middlebox('IDS')
+            """
+        ]
+    )
